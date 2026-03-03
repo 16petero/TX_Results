@@ -32,17 +32,8 @@ def export_results(scraper, live=False):
     os.makedirs("data", exist_ok=True)
 
     if live:
-        csv_path = "data/tx_primary_LIVE.csv"
+        csv_path = "data/tx_results_LIVE.csv"
         county.to_csv(csv_path, index=False)
-
-        senate = county[county["race_name"].str.startswith("U. S. SENATOR")]
-        if not senate.empty:
-            senate.to_csv("data/tx_senate_LIVE.csv", index=False)
-        house = county[county["race_name"].str.startswith("U. S. REPRESENTATIVE")]
-        if not house.empty:
-            house.to_csv("data/tx_house_LIVE.csv", index=False)
-        if not statewide.empty:
-            statewide.to_csv("data/tx_statewide_LIVE.csv", index=False)
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_path = f"data/tx_primary_results_{ts}.csv"

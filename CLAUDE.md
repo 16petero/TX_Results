@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## Project Overview
 
-Texas 2026 primary election night results scraper and dashboard. Fetches live county-level results for US Senate and US House races from the Texas Secretary of State's Civix ENR platform. Provides a Streamlit web dashboard for non-technical users and CSV/Excel export.
+Texas election results scraper and dashboard. Fetches live county-level results from the Texas Secretary of State's Civix ENR platform. Supports all election types: primaries, runoffs, special elections, and constitutional amendments. Provides a Streamlit web dashboard (the single control surface for all functionality) and CSV/Excel export.
 
 ## Common Commands
 
@@ -21,8 +21,8 @@ python export.py
 # Export with auto-refresh (timestamped files each cycle)
 python export.py --auto --interval 60
 
-# Live CSV mode for Excel data source (overwrites fixed-name files)
-python export.py --live --interval 60
+# Live CSV for Excel data source (single file, overwrites each cycle)
+python export.py --live --auto --interval 60
 
 # One-shot scrape (prints summary to stdout)
 python scraper.py
@@ -63,9 +63,16 @@ Key data fields:
 - OTRV = total registered voters
 - Home.RefreshTime = recommended refresh interval (minutes)
 
-Race name prefixes for filtering:
+Data sections in election/{id} (races live in different sections by type):
+- Federal — US Senate, US House races
+- Districted — State Senate, State House races
+- StateWide — statewide offices (Governor, AG, etc.)
+- StateWideQ — propositions / constitutional amendments
+
+Race name prefixes for filtering (primaries only):
 - "U. S. SENATOR" (statewide, 1 race)
 - "U. S. REPRESENTATIVE DISTRICT" (38 districts)
+Non-primary elections (specials, runoffs, amendments) show all races.
 
 ## File Structure
 
@@ -75,15 +82,12 @@ TX_Results/
 ├── requirements.txt    # Python dependencies
 ├── .gitignore
 ├── scraper.py          # Core API client (TXResultsScraper class, KNOWN_ELECTIONS)
-├── app.py              # Streamlit web dashboard (election picker, 3 tabs)
-├── export.py           # CSV/Excel export CLI (--live mode for Excel data source)
+├── app.py              # Streamlit dashboard (all controls: election picker, export, auto-refresh)
+├── export.py           # CSV/Excel export CLI (also usable standalone)
 ├── test_soak.py        # Sustained fetch loop for stability testing
 ├── venv/               # Python virtual environment (git-ignored)
 └── data/               # Exported files (git-ignored)
-    ├── tx_primary_LIVE.csv      # Live CSV (overwritten by --live mode)
-    ├── tx_senate_LIVE.csv       # Senate-only live CSV
-    ├── tx_house_LIVE.csv        # House-only live CSV
-    └── tx_statewide_LIVE.csv    # Statewide summary live CSV
+    └── tx_results_LIVE.csv  # Single live CSV (overwritten by dashboard or --live mode)
 
 ## Git Workflow
 

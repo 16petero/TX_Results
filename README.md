@@ -1,10 +1,10 @@
-# TX Primary Election Results
+# TX Election Results
 
-Live-updating Texas 2026 primary election results dashboard. Scrapes county-level data for US Senate and US House races from the Texas Secretary of State's election night reporting system.
+Live-updating Texas election results dashboard. Scrapes county-level data from the Texas Secretary of State's election night reporting system. Supports primaries, runoffs, special elections, and constitutional amendments.
 
 ## Quick Start
 
-1. Clone this repo
+1. Clone this repo (or download it and save as a folder)
 2. Create a virtual environment and install dependencies:
    ```
    python3 -m venv venv
@@ -19,65 +19,37 @@ Live-updating Texas 2026 primary election results dashboard. Scrapes county-leve
 
 No API keys or credentials needed — the data source is public.
 
-## Dashboard Features
+## Dashboard
 
-- **Statewide Overview**: All races ranked by competitiveness, close races highlighted
-- **Race Detail**: Drill into any race with county-level breakdown and charts
-- **County View**: See all races for a specific county
-- **Party color coding**: Red/blue throughout
-- **Progress bars**: Counties and precincts reporting
-- **Auto-refresh**: Set an interval and the dashboard updates automatically
-- **Election picker**: Switch to 2025 historical data for testing
-- **Export**: Download filtered data as CSV or Excel directly from the dashboard
+The dashboard is the single control surface for everything:
 
-## Export Data
-
-One-shot export to timestamped CSV/Excel:
-```
-python export.py
-```
-
-Auto-export loop:
-```
-python export.py --auto --interval 60
-```
+- **Election picker** — select any combination of elections (primaries, specials, runoffs, amendments)
+- **Race Results tab** — all races with vote totals, percentages, and bar charts
+- **County Breakdown tab** — pick a race, see results by county
+- **County View tab** — pick a county, see all its races
+- **Auto-refresh** — enable in sidebar; also writes live CSV if checked
+- **Export** — download CSV or Excel directly, or write a live CSV for Excel data source
 
 ### Live CSV for Excel
 
-For a live-updating Excel setup, use `--live` mode. This writes fixed-name CSV files that Excel can connect to as a data source:
+1. In the dashboard sidebar, check "Update live CSV on refresh" and enable auto-refresh
+2. In Excel: Data > From Text/CSV > select `data/tx_results_LIVE.csv` > Load
+3. Excel can refresh the data connection to pull the latest
+
+## CLI Tools (optional)
+
+The dashboard handles everything, but CLI tools are also available:
 
 ```
-python export.py --live --interval 60
+python export.py                                    # One-shot export
+python export.py --live --auto --interval 60        # Live CSV loop
+python scraper.py --election "2025 Special CD-18"   # Test with historical data
+python test_soak.py --duration 30                   # Stability test
 ```
 
-This creates these files in `data/` (overwritten each cycle):
-- `tx_primary_LIVE.csv` — all county-level results
-- `tx_senate_LIVE.csv` — Senate race only
-- `tx_house_LIVE.csv` — House races only
-- `tx_statewide_LIVE.csv` — statewide summary
+## Available Elections
 
-**To connect Excel:**
-1. Start the live export: `python export.py --live --interval 60`
-2. In Excel: Data > From Text/CSV > select `data/tx_primary_LIVE.csv` > Load
-3. To refresh: Data > Refresh All (or set auto-refresh in Connection Properties)
-
-The CSV can be read while being overwritten — no file lock issues.
-
-## Testing
-
-Test with historical election data that has real vote counts:
-```
-python scraper.py --election "2025 Special CD-18"
-```
-
-Run a soak test to validate stability under sustained use:
-```
-python test_soak.py --duration 5 --interval 30
-```
-
-## What's Tracked
-
-- US Senate race (both Republican and Democratic primaries)
-- All 38 US House district races (both primaries)
-- County-level results for every race (254 TX counties)
-- Vote totals, early votes, percentages, precincts reporting
+- 2026 Republican Primary / Democratic Primary
+- 2026 Runoff CD-18 / Runoff SD-9
+- 2025 Special CD-18 / Special SD-9 (completed — good for testing)
+- 2025 Constitutional Amendment (completed)

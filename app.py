@@ -1,5 +1,5 @@
 """
-TX Primary Election Results — Streamlit Dashboard
+TX Election Results — Streamlit Dashboard
 
 Launch: streamlit run app.py
 """
@@ -13,20 +13,12 @@ import pandas as pd
 from scraper import TXResultsScraper, KNOWN_ELECTIONS, DEFAULT_ELECTIONS
 
 
-st.set_page_config(page_title="TX Primary Results", page_icon="\U0001f5f3\ufe0f", layout="wide")
-
-# ---------------------------------------------------------------------------
-# Styling
-# ---------------------------------------------------------------------------
-PARTY_COLORS = {"Republican": "#cc0000", "Democratic": "#0057b8"}
+st.set_page_config(page_title="TX Election Results", page_icon="\U0001f5f3\ufe0f", layout="wide")
 
 st.markdown("""
 <style>
-    /* Tighter tables */
     .stDataFrame td, .stDataFrame th { padding: 4px 8px !important; font-size: 14px; }
-    /* Metric labels */
     [data-testid="stMetricLabel"] { font-size: 13px; }
-    /* Progress text */
     .stProgress > div > div { height: 6px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -35,6 +27,9 @@ st.markdown("""
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+PARTY_COLORS = {"Republican": "#cc0000", "Democratic": "#0057b8"}
+
+
 def short_race_name(name):
     """Shorten verbose race names for display."""
     name = name.strip()
@@ -43,14 +38,15 @@ def short_race_name(name):
     if name.startswith("U. S. REPRESENTATIVE DISTRICT"):
         dist = name.replace("U. S. REPRESENTATIVE DISTRICT", "").strip()
         return f"US House TX-{dist}"
-    if name.startswith("STATE SENATOR"):
+    if name.startswith("STATE SENATOR, DISTRICT"):
         dist = name.replace("STATE SENATOR, DISTRICT", "").strip()
-        return f"State Senate {dist}"
+        return f"State Senate Dist. {dist}"
+    if name.startswith("PROPOSITION"):
+        return name  # Already short enough
     return name
 
 
 def fmt_pct(val):
-    """Format percentage for display: 28.9% not 28.900000"""
     if pd.isna(val) or val == 0:
         return "0%"
     if val == round(val):
@@ -59,21 +55,25 @@ def fmt_pct(val):
 
 
 def fmt_votes(val):
-    """Format vote count with commas."""
     return f"{int(val):,}"
 
 
-def filter_df(df, party_filter, race_type):
+def party_color(name):
+    # Check if name contains a party keyword
+    for party, color in PARTY_COLORS.items():
+        if party in name:
+            return color
+    return "#666666"
+
+
+def filter_df(df, race_type):
     if df.empty:
         return df
-    out = df.copy()
-    if party_filter != "Both":
-        out = out[out["party"] == party_filter]
     if race_type == "US Senate":
-        out = out[out["race_name"].str.startswith("U. S. SENATOR")]
+        return df[df["race_name"].str.startswith("U. S. SENATOR")]
     elif race_type == "US House":
-        out = out[out["race_name"].str.startswith("U. S. REPRESENTATIVE")]
-    return out
+        return df[df["race_name"].str.startswith("U. S. REPRESENTATIVE")]
+    return df
 
 
 def to_csv_bytes(df):
@@ -81,157 +81,168 @@ def to_csv_bytes(df):
 
 
 def to_excel_bytes(dfs_dict):
-    """Write multiple DataFrames to an Excel file with named sheets."""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        for sheet_name, df in dfs_dict.items():
+        for sheet, df in dfs_dict.items():
             if not df.empty:
-                df.to_excel(w, sheet_name=sheet_name, index=False)
+                df.to_excel(w, sheet_name=sheet[:31], index=False)
     return buf.getvalue()
 
 
-def party_color(name):
-    return PARTY_COLORS.get(name, "#666666")
-
-
-def run_live_export():
-    """Run the live CSV export (same logic as export.py --live)."""
-    scraper = TXResultsScraper()
-    results = scraper.get_all_results()
-    county = results["county"]
-    if county.empty:
-        return False, "No data returned"
+def write_live_csv(county, statewide):
+    """Write a single live CSV file for Excel data source."""
     os.makedirs("data", exist_ok=True)
-    county.to_csv("data/tx_primary_LIVE.csv", index=False)
-    senate = county[county["race_name"].str.startswith("U. S. SENATOR")]
-    if not senate.empty:
-        senate.to_csv("data/tx_senate_LIVE.csv", index=False)
-    house = county[county["race_name"].str.startswith("U. S. REPRESENTATIVE")]
-    if not house.empty:
-        house.to_csv("data/tx_house_LIVE.csv", index=False)
-    statewide = results["statewide"]
-    if not statewide.empty:
-        statewide.to_csv("data/tx_statewide_LIVE.csv", index=False)
-    return True, f"Exported {len(county):,} rows to data/"
+    county.to_csv("data/tx_results_LIVE.csv", index=False)
+    return len(county)
 
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=60)
-def load_data(elections_key):
+def load_data(elections_key, race_filter_key):
     elections = dict(elections_key)
-    scraper = TXResultsScraper(elections=elections)
+    race_filter = race_filter_key if race_filter_key else None
+    scraper = TXResultsScraper(elections=elections, race_filter=race_filter)
     return scraper.get_all_results()
 
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar: Election Selection
 # ---------------------------------------------------------------------------
 st.sidebar.title("TX Election Results")
 
-election_mode = st.sidebar.radio(
-    "Data Source", ["2026 Primaries (Live)", "Historical / Test"], index=0
+# Build election list grouped by year
+elections_by_year = {}
+for name, info in KNOWN_ELECTIONS.items():
+    elections_by_year.setdefault(info["year"], []).append(name)
+
+# Default to 2026 primaries
+all_names = list(KNOWN_ELECTIONS.keys())
+default_selections = ["2026 Republican Primary", "2026 Democratic Primary"]
+
+selected_elections = st.sidebar.multiselect(
+    "Elections",
+    options=all_names,
+    default=default_selections,
+    help="Select one or more elections to view"
 )
 
-if election_mode == "Historical / Test":
-    available = [k for k, v in KNOWN_ELECTIONS.items() if v["year"] == 2025]
-    selected_elections = st.sidebar.multiselect(
-        "Election(s)", available, default=available[:1]
+if not selected_elections:
+    st.warning("Select at least one election from the sidebar.")
+    st.stop()
+
+# Determine if we should filter to federal races or show all
+# Primaries have hundreds of races — filter to federal by default
+# Other types have few races — show all
+selected_types = [KNOWN_ELECTIONS[n]["type"] for n in selected_elections]
+has_primaries = "primary" in selected_types
+
+if has_primaries:
+    race_scope = st.sidebar.radio(
+        "Races to show",
+        ["Federal Only (Senate + House)", "All Races"],
+        index=0,
+        help="Primaries have 100+ races. Federal Only shows US Senate and US House."
     )
-    elections = {n: KNOWN_ELECTIONS[n]["id"] for n in selected_elections} if selected_elections else DEFAULT_ELECTIONS
+    if race_scope == "Federal Only (Senate + House)":
+        race_filter = TXResultsScraper.TARGET_PREFIXES
+    else:
+        race_filter = None
 else:
-    elections = DEFAULT_ELECTIONS
-
-elections_key = tuple(sorted(elections.items()))
+    race_filter = None
 
 st.sidebar.divider()
-party_filter = st.sidebar.radio("Party", ["Both", "Republican", "Democratic"])
-race_type = st.sidebar.radio("Race Type", ["All Races", "US Senate", "US House"])
 
+# Race type sub-filter (only relevant when showing federal)
+if race_filter:
+    race_type = st.sidebar.radio("Race Type", ["All", "US Senate", "US House"])
+else:
+    race_type = "All"
+
+# ---------------------------------------------------------------------------
+# Sidebar: Auto-Refresh & Live Export
+# ---------------------------------------------------------------------------
 st.sidebar.divider()
-auto_refresh = st.sidebar.checkbox("Auto-refresh", value=False)
+st.sidebar.subheader("Auto-Refresh")
+auto_refresh = st.sidebar.checkbox("Enable auto-refresh", value=False)
 refresh_interval = st.sidebar.number_input("Interval (sec)", min_value=30, value=60, step=10)
+live_csv = st.sidebar.checkbox(
+    "Update live CSV on refresh",
+    value=False,
+    help="Writes data/tx_results_LIVE.csv on each refresh for Excel"
+)
 
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
+elections = {n: KNOWN_ELECTIONS[n]["id"] for n in selected_elections}
+elections_key = tuple(sorted(elections.items()))
+race_filter_key = race_filter if race_filter else None
+
 try:
-    results = load_data(elections_key)
+    results = load_data(elections_key, race_filter_key)
     statewide = results["statewide"]
     county = results["county"]
     status = results["status"]
     data_ok = not county.empty
 except Exception as e:
-    st.error(f"Could not fetch election data. Check your network connection.\n\n{e}")
+    st.error(f"Could not fetch election data.\n\n{e}")
     data_ok = False
     statewide = pd.DataFrame()
     county = pd.DataFrame()
     status = {}
 
+# Write live CSV if enabled (happens every load, including auto-refresh)
+if data_ok and live_csv:
+    write_live_csv(county, statewide)
+
 # ---------------------------------------------------------------------------
-# Export sidebar section
+# Sidebar: Export
 # ---------------------------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.subheader("Export")
 
 if data_ok:
-    filtered = filter_df(county, party_filter, race_type)
-    filtered_sw = filter_df(statewide, party_filter, race_type)
+    filtered = filter_df(county, race_type)
+    filtered_sw = filter_df(statewide, race_type)
 
-    # CSV download
     st.sidebar.download_button(
-        "Download CSV (filtered)", to_csv_bytes(filtered),
+        "Download CSV", to_csv_bytes(filtered),
         "tx_results.csv", "text/csv"
     )
 
-    # Excel download with multiple sheets
-    senate_df = county[county["race_name"].str.startswith("U. S. SENATOR")]
-    house_df = county[county["race_name"].str.startswith("U. S. REPRESENTATIVE")]
-    excel_sheets = {
-        "All County Results": filtered,
-        "Statewide Summary": filtered_sw,
-    }
-    if not senate_df.empty:
-        excel_sheets["Senate by County"] = senate_df
-    if not house_df.empty:
-        excel_sheets["House by County"] = house_df
+    sheets = {"County Results": filtered}
+    if not filtered_sw.empty:
+        sheets["Statewide Summary"] = filtered_sw
     st.sidebar.download_button(
-        "Download Excel (multi-sheet)", to_excel_bytes(excel_sheets),
+        "Download Excel", to_excel_bytes(sheets),
         "tx_results.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Live CSV export button
-    st.sidebar.caption("Write live CSVs for Excel data source:")
-    if st.sidebar.button("Export Live CSVs to data/"):
-        ok, msg = run_live_export()
-        if ok:
-            st.sidebar.success(msg)
-        else:
-            st.sidebar.error(msg)
+    if st.sidebar.button("Write Live CSV Now"):
+        n = write_live_csv(county, statewide)
+        st.sidebar.success(f"Wrote {n:,} rows to data/tx_results_LIVE.csv")
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-if election_mode == "Historical / Test":
-    st.title("TX Election Results")
-    st.caption("Viewing historical data for testing")
-else:
-    st.title("TX 2026 Primary Results")
+st.title("TX Election Results")
+st.caption(" + ".join(selected_elections))
 
-# Reporting status bar
+# Reporting status
 if status:
-    cols = st.columns(len(status) * 2)
+    cols = st.columns(min(len(status) * 2, 6))
     i = 0
     for label, s in status.items():
-        if s:
+        if s and i + 1 < len(cols):
             cr, ct = s["counties_reporting"], s["counties_total"]
             pr, pt = s["precincts_reporting"], s["precincts_total"]
-            cols[i].metric(f"{label} Counties", f"{cr} / {ct}")
+            cols[i].metric(f"{label} Counties", f"{cr}/{ct}")
             if ct > 0:
                 cols[i].progress(cr / ct)
-            cols[i + 1].metric(f"{label} Precincts", f"{pr:,} / {pt:,}")
+            cols[i + 1].metric(f"{label} Precincts", f"{pr:,}/{pt:,}")
             if pt > 0:
                 cols[i + 1].progress(pr / pt)
             i += 2
@@ -245,45 +256,50 @@ if not data_ok:
     st.stop()
 
 # ---------------------------------------------------------------------------
+# Apply race type filter
+# ---------------------------------------------------------------------------
+sw_filtered = filter_df(statewide, race_type)
+co_filtered = filter_df(county, race_type)
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["Race Results", "County Breakdown", "County View"])
 
-# ---- Tab 1: Race Results (the main view) ---------------------------------
+# ---- Tab 1: Race Results -------------------------------------------------
 with tab1:
-    sw = filter_df(statewide, party_filter, race_type)
-    co = filter_df(county, party_filter, race_type)
-    if sw.empty:
+    if sw_filtered.empty:
         st.info("No results match the current filters.")
     else:
-        # Group by party, then by race
-        for party_name in sorted(sw["party"].unique()):
-            party_sw = sw[sw["party"] == party_name]
-            color = party_color(party_name)
-            st.markdown(f"### <span style='color:{color}'>{party_name}</span>",
+        for election_label in sorted(sw_filtered["party"].unique()):
+            label_sw = sw_filtered[sw_filtered["party"] == election_label]
+            label_co = co_filtered[co_filtered["party"] == election_label] if not co_filtered.empty else pd.DataFrame()
+            color = party_color(election_label)
+
+            st.markdown(f"### <span style='color:{color}'>{election_label}</span>",
                         unsafe_allow_html=True)
 
-            races = sorted(party_sw["race_name"].unique(),
+            races = sorted(label_sw["race_name"].unique(),
                            key=lambda r: (not r.startswith("U. S. SENATOR"), r))
 
             for race in races:
-                race_sw = party_sw[party_sw["race_name"] == race].sort_values(
+                race_sw = label_sw[label_sw["race_name"] == race].sort_values(
                     "votes", ascending=False
                 )
                 n_cands = len(race_sw)
                 total_v = race_sw["votes"].sum()
                 display_name = short_race_name(race)
 
-                # Get precinct info from county data if available
-                race_co = co[(co["race_name"] == race) & (co["party"] == party_name)]
+                # Precinct info from county data
+                race_co = label_co[label_co["race_name"] == race] if not label_co.empty else pd.DataFrame()
                 if not race_co.empty:
-                    rptg = race_co["precincts_reporting"].sum()
-                    total_p = race_co["total_precincts"].sum()
+                    rptg = int(race_co["precincts_reporting"].sum())
+                    total_p = int(race_co["total_precincts"].sum())
                     pct_rptg = f"{rptg:,}/{total_p:,} precincts" if total_p > 0 else ""
                 else:
                     pct_rptg = ""
 
-                # Uncontested — just show the name
+                # Uncontested
                 if n_cands == 1:
                     c = race_sw.iloc[0]
                     st.markdown(
@@ -293,19 +309,19 @@ with tab1:
                     )
                     continue
 
-                # Contested race — show as a clean card
+                # Contested race
                 leader = race_sw.iloc[0]
                 runner = race_sw.iloc[1]
-                margin = leader["votes"] - runner["votes"]
-                margin_p = (margin / total_v * 100) if total_v > 0 else 0
+                margin_v = leader["votes"] - runner["votes"]
+                margin_p = (margin_v / total_v * 100) if total_v > 0 else 0
 
-                # Header line
                 close_tag = " :warning:" if 0 < margin_p < 5 and total_v > 0 else ""
-                st.markdown(f"**{display_name}**{close_tag} &nbsp;&nbsp; "
-                            f"<small style='color:#888'>{pct_rptg}</small>",
-                            unsafe_allow_html=True)
+                st.markdown(
+                    f"**{display_name}**{close_tag} &nbsp;&nbsp; "
+                    f"<small style='color:#888'>{pct_rptg}</small>",
+                    unsafe_allow_html=True
+                )
 
-                # Simple results table — just candidate, votes, %
                 display_rows = []
                 for _, row in race_sw.iterrows():
                     display_rows.append({
@@ -315,50 +331,50 @@ with tab1:
                     })
                 display_df = pd.DataFrame(display_rows)
 
-                # Use columns layout: table on left, bar on right
-                if total_v > 0:
+                if total_v > 0 and n_cands > 1:
                     left, right = st.columns([3, 2])
                     with left:
                         st.dataframe(display_df, use_container_width=True,
-                                     hide_index=True, height=min(38 + 35 * len(display_rows), 400))
+                                     hide_index=True,
+                                     height=min(38 + 35 * n_cands, 400))
                     with right:
-                        chart_data = race_sw[["candidate", "votes"]].set_index("candidate").sort_values("votes")
-                        st.bar_chart(chart_data, horizontal=True, color=color, height=min(35 * len(display_rows) + 80, 400))
+                        chart = race_sw[["candidate", "votes"]].set_index("candidate").sort_values("votes")
+                        st.bar_chart(chart, horizontal=True, color=color,
+                                     height=min(35 * n_cands + 80, 400))
                 else:
                     st.dataframe(display_df, use_container_width=True,
-                                 hide_index=True, height=min(38 + 35 * len(display_rows), 300))
+                                 hide_index=True,
+                                 height=min(38 + 35 * n_cands, 300))
 
                 st.divider()
 
-# ---- Tab 2: County Breakdown (pick a race, see all counties) ---------------
+# ---- Tab 2: County Breakdown ---------------------------------------------
 with tab2:
-    co = filter_df(county, party_filter, race_type)
-    if co.empty:
+    if co_filtered.empty:
         st.info("No county results match the current filters.")
     else:
-        # Race selector with short names
-        race_list = sorted(co["race_name"].unique(),
+        race_list = sorted(co_filtered["race_name"].unique(),
                            key=lambda r: (not r.startswith("U. S. SENATOR"), r))
         labels = [short_race_name(r) for r in race_list]
         selected_label = st.selectbox("Select Race", labels, key="race_select")
         selected_race = race_list[labels.index(selected_label)]
-        race_data = co[co["race_name"] == selected_race]
+        race_data = co_filtered[co_filtered["race_name"] == selected_race]
 
-        for race_party in sorted(race_data["party"].unique()):
-            party_data = race_data[race_data["party"] == race_party]
-            color = party_color(race_party)
+        for election_label in sorted(race_data["party"].unique()):
+            party_data = race_data[race_data["party"] == election_label]
+            color = party_color(election_label)
 
-            st.markdown(f"#### <span style='color:{color}'>{race_party}</span> — {selected_label}",
-                        unsafe_allow_html=True)
+            st.markdown(
+                f"#### <span style='color:{color}'>{election_label}</span> — {selected_label}",
+                unsafe_allow_html=True
+            )
 
-            # Precinct progress
-            total_p = party_data["total_precincts"].sum()
-            rptg_p = party_data["precincts_reporting"].sum()
+            total_p = int(party_data["total_precincts"].sum())
+            rptg_p = int(party_data["precincts_reporting"].sum())
             if total_p > 0:
                 pct = rptg_p / total_p
                 st.progress(pct, text=f"{rptg_p:,} / {total_p:,} precincts ({pct:.0%})")
 
-            # Candidate totals
             cand_totals = (party_data.groupby("candidate")
                            .agg(votes=("votes", "sum"), early_votes=("early_votes", "sum"))
                            .sort_values("votes", ascending=False)
@@ -369,22 +385,22 @@ with tab2:
             )
             cand_totals["votes"] = cand_totals["votes"].apply(fmt_votes)
             cand_totals["early_votes"] = cand_totals["early_votes"].apply(fmt_votes)
-            display_cands = cand_totals.rename(columns={
-                "candidate": "Candidate", "votes": "Votes",
-                "early_votes": "Early Votes", "pct": "Pct"
-            })
-            st.dataframe(display_cands, use_container_width=True, hide_index=True)
+            st.dataframe(
+                cand_totals.rename(columns={
+                    "candidate": "Candidate", "votes": "Votes",
+                    "early_votes": "Early Votes", "pct": "Pct"
+                }),
+                use_container_width=True, hide_index=True
+            )
 
-            # County pivot table
+            # County pivot
             pivot = party_data.pivot_table(
                 index="county", columns="candidate",
                 values="votes", aggfunc="sum", fill_value=0
             )
-            # Add total column and sort by it
             pivot["Total"] = pivot.sum(axis=1)
             pivot = pivot.sort_values("Total", ascending=False)
 
-            # Add precincts
             prec = (party_data.groupby("county")
                     .agg(pr=("precincts_reporting", "first"),
                          tp=("total_precincts", "first"))
@@ -395,57 +411,57 @@ with tab2:
             )
             pivot = pivot.drop(columns=["pr", "tp"])
 
-            # Format vote numbers
             for col in pivot.columns:
                 if col != "Precincts":
-                    pivot[col] = pivot[col].apply(lambda v: fmt_votes(v) if isinstance(v, (int, float)) else v)
+                    pivot[col] = pivot[col].apply(
+                        lambda v: fmt_votes(v) if isinstance(v, (int, float)) else v
+                    )
 
             pivot = pivot.reset_index().rename(columns={"county": "County"})
             st.dataframe(pivot, use_container_width=True, hide_index=True, height=600)
 
-# ---- Tab 3: County View ---------------------------------------------------
+# ---- Tab 3: County View --------------------------------------------------
 with tab3:
-    co = filter_df(county, party_filter, race_type)
-    if co.empty:
+    if co_filtered.empty:
         st.info("No county results match the current filters.")
     else:
-        counties = sorted(co["county"].unique())
+        counties = sorted(co_filtered["county"].unique())
         selected_county = st.selectbox("Select County", counties, key="county_select")
-        county_data = co[co["county"] == selected_county]
+        county_data = co_filtered[co_filtered["county"] == selected_county]
 
-        # County precinct summary
-        first_race = county_data.groupby("race_name").first().iloc[0]
-        pr, tp = int(first_race["precincts_reporting"]), int(first_race["total_precincts"])
+        first = county_data.groupby("race_name").first().iloc[0]
+        pr, tp = int(first["precincts_reporting"]), int(first["total_precincts"])
         if tp > 0:
             st.progress(pr / tp, text=f"{selected_county} — {pr}/{tp} precincts ({pr/tp:.0%})")
 
-        for (p, race), grp in county_data.groupby(["party", "race_name"]):
+        for (el, race), grp in county_data.groupby(["party", "race_name"]):
             grp_sorted = grp.sort_values("votes", ascending=False)
-            color = party_color(p)
+            color = party_color(el)
             display_name = short_race_name(race)
-            n_cands = len(grp_sorted)
+            n = len(grp_sorted)
 
-            if n_cands == 1:
+            if n == 1:
                 c = grp_sorted.iloc[0]
                 st.markdown(
-                    f"<span style='color:{color}'>{p}</span> **{display_name}** — "
+                    f"<span style='color:{color}'>{el}</span> **{display_name}** — "
                     f"{c['candidate']} *(uncontested)* {fmt_votes(c['votes'])} votes",
                     unsafe_allow_html=True
                 )
                 continue
 
-            st.markdown(f"<span style='color:{color}'>{p}</span> — **{display_name}**",
-                        unsafe_allow_html=True)
-
-            display_rows = []
+            st.markdown(
+                f"<span style='color:{color}'>{el}</span> — **{display_name}**",
+                unsafe_allow_html=True
+            )
+            rows = []
             for _, row in grp_sorted.iterrows():
-                display_rows.append({
+                rows.append({
                     "Candidate": row["candidate"],
                     "Votes": fmt_votes(row["votes"]),
                     "Early Votes": fmt_votes(row["early_votes"]),
                     "Pct": fmt_pct(row["vote_pct"]),
                 })
-            st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------------------
 # Auto-refresh

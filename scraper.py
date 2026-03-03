@@ -35,15 +35,23 @@ class TXResultsScraper:
     BASE_URL = "https://goelect.txelections.civixapps.com/api-ivis-system/api/s3/enr"
     TARGET_PREFIXES = ("U. S. SENATOR", "U. S. REPRESENTATIVE DISTRICT")
 
-    def __init__(self, elections=None, race_filter=None):
+    # Sentinel to distinguish "not passed" from "explicitly passed None"
+    _UNSET = object()
+
+    def __init__(self, elections=None, race_filter=_UNSET):
         """
         Args:
             elections: dict of {label: election_id}. Defaults to tonight's primaries.
-            race_filter: tuple of race name prefixes to include. Defaults to
-                         US Senate + US House. Pass None to include ALL races.
+            race_filter: tuple of race name prefixes to include.
+                         Defaults to US Senate + US House for primaries.
+                         Pass None to include ALL races (recommended for
+                         specials, runoffs, amendments).
         """
         self.elections = elections or DEFAULT_ELECTIONS
-        self.race_filter = race_filter if race_filter is not None else self.TARGET_PREFIXES
+        if race_filter is self._UNSET:
+            self.race_filter = self.TARGET_PREFIXES
+        else:
+            self.race_filter = race_filter
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -110,7 +118,7 @@ class TXResultsScraper:
         data = self._fetch_json(f"election/{election_id}")
         rows = []
 
-        for section_key in ("Federal", "Districted", "StateWide"):
+        for section_key in ("Federal", "Districted", "StateWide", "StateWideQ"):
             raw = data.get(section_key)
             if not raw or not isinstance(raw, str) or len(raw) < 20:
                 continue
