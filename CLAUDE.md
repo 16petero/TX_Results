@@ -8,20 +8,31 @@ Texas 2026 primary election night results scraper and dashboard. Fetches live co
 
 ## Common Commands
 
-# Install dependencies
+# Install dependencies (use venv on macOS)
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # Launch web dashboard (opens browser at http://localhost:8501)
 streamlit run app.py
 
-# Export current results to CSV/Excel
+# Export current results to CSV/Excel (timestamped)
 python export.py
 
-# Export with auto-refresh
+# Export with auto-refresh (timestamped files each cycle)
 python export.py --auto --interval 60
+
+# Live CSV mode for Excel data source (overwrites fixed-name files)
+python export.py --live --interval 60
 
 # One-shot scrape (prints summary to stdout)
 python scraper.py
+
+# Test with historical election data (real votes)
+python scraper.py --election "2025 Special CD-18"
+
+# Soak test (sustained fetch for N minutes)
+python test_soak.py --duration 5 --interval 30
+python test_soak.py --election "2025 Special CD-18" --duration 10
 
 ## API Reference
 
@@ -35,6 +46,14 @@ Endpoints:
 Election IDs:
 - 53813 = 2026 Republican Primary
 - 53814 = 2026 Democratic Primary
+- 54612 = 2026 Runoff CD-18
+- 54613 = 2026 Runoff SD-9
+- 51742 = 2025 Special CD-18 (completed, real vote data — good for testing)
+- 51830 = 2025 Special SD-9 (completed, real vote data)
+- 51031 = 2025 Constitutional Amendment (completed)
+
+Note: 2025 special elections use dict format for county-level candidates
+(keyed by ID) while 2026 primaries use list format. The scraper handles both.
 
 Data is base64-encoded JSON. Decode with: json.loads(base64.b64decode(payload))
 
@@ -55,10 +74,16 @@ TX_Results/
 ├── README.md           # Setup & usage for sharing
 ├── requirements.txt    # Python dependencies
 ├── .gitignore
-├── scraper.py          # Core API client (TXResultsScraper class)
-├── app.py              # Streamlit web dashboard
-├── export.py           # CSV/Excel export CLI
+├── scraper.py          # Core API client (TXResultsScraper class, KNOWN_ELECTIONS)
+├── app.py              # Streamlit web dashboard (election picker, 3 tabs)
+├── export.py           # CSV/Excel export CLI (--live mode for Excel data source)
+├── test_soak.py        # Sustained fetch loop for stability testing
+├── venv/               # Python virtual environment (git-ignored)
 └── data/               # Exported files (git-ignored)
+    ├── tx_primary_LIVE.csv      # Live CSV (overwritten by --live mode)
+    ├── tx_senate_LIVE.csv       # Senate-only live CSV
+    ├── tx_house_LIVE.csv        # House-only live CSV
+    └── tx_statewide_LIVE.csv    # Statewide summary live CSV
 
 ## Git Workflow
 
