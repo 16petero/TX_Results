@@ -60,12 +60,43 @@ TX_Results/
 ├── export.py           # CSV/Excel export CLI
 └── data/               # Exported files (git-ignored)
 
+## Git Workflow
+
+This project uses git. Follow these practices for all work:
+
+### Branching
+- **NEVER work directly on `main`.** Create a feature branch as the very first action — before reading files, before exploring, before anything else. No exceptions.
+- Branch names should be descriptive and lowercase with hyphens: `add-county-heatmap`, `fix-base64-decode-error`, `update-refresh-logic`.
+- Branch from `main` unless told otherwise.
+
+### Committing
+- Commit after each logical unit of work — not one giant commit at the end of a session.
+- A "logical unit" means: one new feature, one bug fix, one view update. If you can describe it in one sentence, it's one commit.
+- Write clear commit messages in this format:
+  - `add: county-level heatmap to dashboard`
+  - `fix: base64 decode error on empty payload`
+  - `update: refresh interval logic per API guidance`
+  - `refactor: extract data filtering into helper`
+- Always run `git diff --stat` before committing to review what's being included.
+- **Never commit `.env`, data files, or anything in `data/`.** Verify with `git status` before staging.
+
+### End of Session
+- Commit all outstanding work before ending a session.
+- If work is incomplete, commit to the feature branch with a message prefixed with `wip:` (e.g., `wip: export rework, Excel sheets not yet updated`).
+- Update CLAUDE.md if anything changed (new features, scripts, patterns).
+
+### Merging
+- Only merge to `main` when the work is complete, tested, and verified.
+- Before merging, confirm with the user.
+
 ## Working Style
 
 ### Before Writing Code
-1. Read and understand the API response structure before modifying scraper.py.
-2. Test API calls manually with curl before assuming endpoint behavior.
-3. Update CLAUDE.md and README.md when adding new features or commands.
+1. **Create a feature branch.** The very first action in every task. See Git Workflow above.
+2. Read and understand the API response structure before modifying scraper.py.
+3. Test API calls manually with curl before assuming endpoint behavior.
+4. **Identify every file that documents or depends on what you're changing** and update them in the same commit.
+5. Update CLAUDE.md and README.md when adding new features or commands.
 
 ### Robustness
 - All HTTP calls must have timeout (30s) and retry logic (3 attempts, exponential backoff).
